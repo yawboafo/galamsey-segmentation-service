@@ -53,30 +53,55 @@ class EndpointHandler:
                 align_corners=False,
             )
             probs = torch.softmax(upsampled_logits, dim=1)
-            prediction_mask = probs[0, 1].cpu().numpy()
+            
+            # If multi-class model (> 2), get all channels. Otherwise get just class 1.
+            if probs.shape[1] > 2:
+                prediction_mask = probs[0].cpu().numpy()
+            else:
+                prediction_mask = probs[0, 1].cpu().numpy()
 
-        # 3. Post-Processing (Simplified version of our app logic)
-        binary_mask = (prediction_mask > threshold).astype(np.uint8)
+        # 3. Post-Processing
+        class_names = {1: "galamsey_pit", 2: "vegetation_loss", 3: "road", 4: "water_turbid"}
         
-        # Find contours
-        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
+        # Coerce to [C, H, W]
+        if len(prediction_mask.shape) == 2:
+            prediction_mask = np.expand_dims(prediction_mask, axis=0)
+            is_multiclass = False
+        else:
+            is_multiclass = True
+
         features = []
-        for contour in contours:
-            pts = contour.reshape(-1, 2)
-            if len(pts) < 3: continue
-            
-            poly = Polygon(pts)
-            if poly.area < min_area: continue
-            
-            if simplify_tolerance > 0:
-                poly = poly.simplify(simplify_tolerance, preserve_topology=True)
+        
+        for channel_idx, class_mask in enumerate(prediction_mask):
+            if is_multiclass and channel_idx == 0:
+                continue # Skip background
                 
-            features.append({
-                "type": "Feature",
-                "geometry": mapping(poly),
-                "properties": {"area_px": float(poly.area)}
-            })
+            actual_class_id = channel_idx if is_multiclass else 1
+            feature_type = class_names.get(actual_class_id, f"class_{actual_class_id}")
+            
+            binary_mask = (class_mask > threshold).astype(np.uint8)
+            
+            # Find contours
+            contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for contour in contours:
+                pts = contour.reshape(-1, 2)
+                if len(pts) < 3: continue
+                
+                poly = Polygon(pts)
+                if poly.area < min_area: continue
+                
+                if simplify_tolerance > 0:
+                    poly = poly.simplify(simplify_tolerance, preserve_topology=True)
+                    
+                features.append({
+                    "type": "Feature",
+                    "geometry": mapping(poly),
+                    "properties": {
+                        "area_px": float(poly.area),
+                        "feature_type": feature_type
+                    }
+                })
 
         return {
             "success": True,

@@ -16,9 +16,14 @@ def train():
     checkpoint = train_settings.MODEL_CHECKPOINT
     processor = SegformerImageProcessor.from_pretrained(checkpoint)
     processor.do_reduce_labels = False # We handle masks ourselves
-    
     # ID to Label mapping
-    id2label = {0: "background", 1: "galamsey"}
+    id2label = {
+        0: "background", 
+        1: "galamsey_pit", 
+        2: "vegetation_loss", 
+        3: "road", 
+        4: "water_turbid"
+    }
     label2id = {v: k for k, v in id2label.items()}
     
     model = SegformerForSemanticSegmentation.from_pretrained(
@@ -53,7 +58,7 @@ def train():
         num_train_epochs=train_settings.NUM_EPOCHS,
         per_device_train_batch_size=train_settings.TRAIN_BATCH_SIZE,
         per_device_eval_batch_size=train_settings.VAL_BATCH_SIZE,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         save_total_limit=3,
         remove_unused_columns=False, # Standard for HF segmentation trainer

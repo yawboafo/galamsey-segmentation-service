@@ -47,9 +47,7 @@ class GalamseyDataset(Dataset):
         image = np.array(Image.open(img_path).convert("RGB"))
         mask = np.array(Image.open(mask_path).convert("L"))
         
-        # Normalize mask to binary (0, 1)
-        # Assuming 1 or 255 represents galamsey
-        mask = (mask > 0).astype(np.uint8)
+        # Keep mask as is for multi-class semantic segmentation (0,1,2,3,4)
         
         if self.transform:
             augmented = self.transform(image=image, mask=mask)

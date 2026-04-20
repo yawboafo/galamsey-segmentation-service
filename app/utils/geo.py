@@ -9,7 +9,9 @@ def mask_to_geojson(
     threshold: float = 0.5, 
     min_area: int = 50,
     simplify_tolerance: float = 0.1,
-    transform = None
+    transform = None,
+    feature_type: str = "galamsey_pit",
+    extra_properties: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """
     Converts a binary mask to a GeoJSON FeatureCollection of simplified polygons.
@@ -20,6 +22,8 @@ def mask_to_geojson(
         min_area: Minimum pixel area to keep a polygon
         simplify_tolerance: Tolerance for Douglas-Peucker simplification
         transform: Rasterio transform if geolocation is available
+        feature_type: String label for the class (e.g. galamsey_pit, road, water_turbid)
+        extra_properties: Any extra properties to attach to each feature
     """
     # Ensure binary mask
     if mask.dtype != np.uint8:
@@ -33,6 +37,8 @@ def mask_to_geojson(
     )
 
     features = []
+    if extra_properties is None:
+        extra_properties = {}
     
     for contour in contours:
         # Move contour to pixel coordinates
@@ -60,13 +66,16 @@ def mask_to_geojson(
             pass
             
         # Add to features
+        properties = {
+            "area_px": float(poly.area),
+            "feature_type": feature_type
+        }
+        properties.update(extra_properties)
+
         feature = {
             "type": "Feature",
             "geometry": mapping(poly),
-            "properties": {
-                "area_px": float(poly.area),
-                "is_galamsey": True
-            }
+            "properties": properties
         }
         features.append(feature)
 

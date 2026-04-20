@@ -12,17 +12,30 @@ def compute_metrics(eval_pred):
     """
     logits, labels = eval_pred
     
+    # SegFormer output is 1/4 of input size, so we need to upsample
+    # logits shape: [batch_size, num_labels, height/4, width/4]
+    # labels shape: [batch_size, height, width]
+    
+    # Upsample logits to match label size
+    logits_tensor = torch.from_numpy(logits)
+    labels_tensor = torch.from_numpy(labels)
+    
+    upsampled_logits = torch.nn.functional.interpolate(
+        logits_tensor,
+        size=labels_tensor.shape[-2:], # height, width
+        mode="bilinear",
+        align_corners=False,
+    )
+    
     # Pre-processing logits to get predicted class
-    # logits shape: [batch_size, num_classes, height, width]
-    # We take argmax over the class dimension
-    predictions = np.argmax(logits, axis=1)
+    predictions = upsampled_logits.argmax(dim=1).numpy()
     
     # compute mIoU using evaluate library
     # labels shape: [batch_size, height, width]
     results = metric.compute(
         predictions=predictions,
         references=labels,
-        num_labels=2, # Binary: 0=Background, 1=Galamsey
+        num_labels=5, # Multi-class: 0=Bg, 1=Galamsey, 2=Veg Loss, 3=Road, 4=Water
         ignore_index=255, # Standard ignore index
         reduce_labels=False,
     )

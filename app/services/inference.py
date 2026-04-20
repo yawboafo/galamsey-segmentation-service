@@ -27,42 +27,65 @@ class GalamseyInferenceService:
         """Loads PIL image from bytes or URL."""
         if isinstance(image_source, str) and image_source.startswith("http"):
             response = requests.get(image_source)
-            image = Image.open(io.BytesIO(response.content)).convert("RGB")
+            image_data = response.content
         elif isinstance(image_source, bytes):
-            image = Image.open(io.BytesIO(image_source)).convert("RGB")
+            image_data = image_source
         else:
             raise ValueError("Invalid image source. Must be bytes or a valid URL.")
-        return image
+        
+        # Try rasterio for multispectral/SAR if needed in future
+        # For now, we fallback to PIL which reads standard RGB formats
+        try:
+            image = Image.open(io.BytesIO(image_data))
+            # Just to ensure we're not crashing on 4-band if our model isn't ready
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            return image
+        except Exception as e:
+            raise ValueError(f"Failed to load image: {e}")
+
+    def calculate_ndvi(self, image: Image.Image) -> float:
+        """
+        Mock NDVI calculation. 
+        In actual production with Multispectral TIFFs, this uses (NIR - R) / (NIR + R).
+        Here we return a simulated overall vegetation stress score for demo purposes.
+        """
+        import random
+        # Normally: extract band 4 (NIR) and band 3 (Red)
+        return random.uniform(-1.0, 1.0)
 
     @torch.no_grad()
-    def predict(self, image: Image.Image):
+    def predict(self, image: Image.Image, return_all_classes: bool = True):
         """
-        Runs inference on the image and returns probability mask for class 1.
+        Runs inference on the image. Retuns probability mask for multiple classes.
         """
-        # Preprocess
         inputs = self.processor(images=image, return_tensors="pt").to(self.device)
-        
-        # Inference
         outputs = self.model(**inputs)
-        logits = outputs.logits  # shape (batch_size, num_labels, height/4, width/4)
+        logits = outputs.logits 
         
-        # Upsample logits to original image size
-        # Segformer output is 1/4 of input size
         upsampled_logits = torch.nn.functional.interpolate(
             logits,
             size=image.size[::-1], # H, W
             mode="bilinear",
             align_corners=False,
         )
-        
-        # Get softmax probabilities
         probs = torch.softmax(upsampled_logits, dim=1)
         
-        # We only care about the 'galamsey' class (index 1)
-        # Result shape: [H, W]
-        prediction = probs[0, 1].cpu().numpy()
-        
-        return prediction
+        if return_all_classes and probs.shape[1] > 2:
+            # Return all class channels [num_classes, H, W]
+            return probs[0].cpu().numpy()
+        else:
+            # Fallback for binary model (just 'galamsey')
+            return probs[0, 1].cpu().numpy()
+
+    def calculate_change(self, mask_t1: np.ndarray, mask_t2: np.ndarray) -> np.ndarray:
+        """
+        Computes the delta between two prediction masks.
+        Positive values indicate new developments (e.g., new galamsey pits).
+        """
+        # Simple logical difference for binary arrays: new = t2 AND NOT t1
+        delta = np.maximum(0, mask_t2 - mask_t1)
+        return delta
 
 import os
 # Singleton instance
